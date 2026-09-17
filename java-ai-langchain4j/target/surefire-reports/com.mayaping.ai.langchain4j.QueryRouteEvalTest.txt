@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.mayaping.ai.langchain4j.QueryRouteEvalTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 48.34 s -- in com.mayaping.ai.langchain4j.QueryRouteEvalTest
