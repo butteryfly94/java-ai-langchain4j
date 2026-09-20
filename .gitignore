@@ -1,0 +1,62 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+# 本地 JVM 参数（UTF-8 等），按人/按机可选，不强制进库
+patrol/.mvn/jvm.config
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+*.iws
+*.iml
+*.ipr
+**/.idea/**
+**/logs/
+*.log
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### IDE build output ###
+**/bin/
+**/cp_args.txt
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+mobile-lessee/pnpm-lock.yaml
+**/.lingma/**
+.claude/**
+AGENTS.md
+
+### 内网部署构建临时文件 ###
+doc/internal/docker/Dockerfiles/nginx/patrol-ui/
+doc/internal/docker/Dockerfiles/nginx/patrol-internalscreen/
+
+### Docker 大文件镜像包 ###
+doc/internal/docker/images/patrol-management.tarbak
+
+### Node / pnpm 依赖（不进库） ###
+node_modules/
+
+### WorkBuddy 本地记忆（不进库） ###
+.workbuddy/memory/
+.workbuddy-ai/
+.idea/
