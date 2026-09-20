@@ -133,7 +133,7 @@ public class QueryComplexityRouter {
         }
 
         RouteDecision decision = judge(userMessage.trim());
-        log.info("复杂度路由 → {}（依据：{}）｜问题：{}", decision.route(), decision.reason(), userMessage);
+        log.info("复杂度路由判断 → {}（依据：{}）｜问题：{}", decision.route(), decision.reason(), userMessage);
         return decision;
     }
 
