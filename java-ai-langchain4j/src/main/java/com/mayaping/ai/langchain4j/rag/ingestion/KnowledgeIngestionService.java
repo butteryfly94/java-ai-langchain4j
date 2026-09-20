@@ -18,6 +18,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.elasticsearch.ElasticsearchEmbeddingStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -121,6 +123,12 @@ public class KnowledgeIngestionService {
      * 明确告知"已有一次摄入在进行中"比静默等待几分钟更有用。
      */
     private final ReentrantLock ingestionLock = new ReentrantLock();
+
+    /**
+     * 按索引名缓存的写入用 EmbeddingStore。
+     * 索引名含时间戳，所以不会跨发布复用，无需考虑失效清理。
+     */
+    private final Map<String, EmbeddingStore<TextSegment>> storeCache = new ConcurrentHashMap<>();
 
     public KnowledgeIngestionService(ElasticsearchClient elasticsearchClient,
                                      EmbeddingModel embeddingModel,
@@ -404,7 +412,8 @@ public class KnowledgeIngestionService {
                     "%s 搬运有 %d 条失败（上一版索引 %s → 新索引 %s），"
                             + "受影响的文档可能在新索引中缺失，建议手工执行一次全量重建（force=true）",
                     kind, response.failures().size(), sourceIndex, targetIndex));
-            response.failures().forEach(f -> log.warn("搬运失败：{}", f.reason()));
+            response.failures().forEach(f -> log.warn("搬运失败：index={} id={} status={} cause={}",
+                    f.index(), f.id(), f.status(), f.cause()));
         }
 
         long copied = response.total();
@@ -698,16 +707,35 @@ public class KnowledgeIngestionService {
     /**
      * 子块批量向量化并写入children索引（DashScope批量接口有上限，按10条一批）。
      *
-     * 写入目标是**新物理索引名**而不是 embeddingStore 里绑定的别名：
-     * 发布期间别名仍指向旧索引，此时往别名写会污染线上正在服务的索引。
-     * 用 addAll(embeddings, segments, indexName) 显式指定落点。
+     * 落点是**新物理索引名**，不是构造时注入的 embeddingStore（它绑定在别名上）。
+     * 原因：发布期间别名仍指向旧索引，往别名写会污染线上正在服务的索引——
+     * 一旦发布失败回滚，旧索引里已经混进了半成品数据，且没有任何报错。
+     *
+     * ElasticsearchEmbeddingStore 是"一个实例绑定一个索引"的设计，没有"按索引名写入"
+     * 的重载，所以这里按目标索引名建一个临时store。建store本身是轻量的（只是持有
+     * client与索引名），真正的开销在 embedding 调用上，这里不重复付。
      */
     private void embedAndStoreChildren(String childrenIndex, List<TextSegment> children) {
+        EmbeddingStore<TextSegment> targetStore = storeFor(childrenIndex);
         for (int from = 0; from < children.size(); from += EMBED_BATCH_SIZE) {
             List<TextSegment> batch = children.subList(from, Math.min(from + EMBED_BATCH_SIZE, children.size()));
             Response<List<Embedding>> response = embeddingModel.embedAll(batch);
-            embeddingStore.addAll(response.content(), batch, childrenIndex);
+            targetStore.addAll(response.content(), batch);
         }
+    }
+
+    /**
+     * 按索引名取（或创建）EmbeddingStore。
+     *
+     * 带缓存：一次发布里 children 会被反复写入（每份文档、每个父块一次），
+     * 每次都新建 store 虽然轻量但没必要。缓存以索引名为key，
+     * 索引名含时间戳所以不会跨发布复用——这也正好避免了"旧store指向已删除索引"的问题。
+     */
+    private EmbeddingStore<TextSegment> storeFor(String indexName) {
+        return storeCache.computeIfAbsent(indexName, name -> ElasticsearchEmbeddingStore.builder()
+                .client(elasticsearchClient)
+                .indexName(name)
+                .build());
     }
 
     // ==================== 索引维护与校验 ====================

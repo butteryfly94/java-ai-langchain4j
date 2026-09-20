@@ -10,6 +10,7 @@ com\mayaping\ai\langchain4j\ToolsTest.class
 com\mayaping\ai\langchain4j\ChatMemoryTest.class
 com\mayaping\ai\langchain4j\QueryRouteEvalTest$EvalCase.class
 com\mayaping\ai\langchain4j\RetrievalEvalTest.class
+com\mayaping\ai\langchain4j\DocumentFingerprintTest.class
 com\mayaping\ai\langchain4j\IngestionTest.class
 com\mayaping\ai\langchain4j\LLMTest.class
 com\mayaping\ai\langchain4j\RAGTest.class

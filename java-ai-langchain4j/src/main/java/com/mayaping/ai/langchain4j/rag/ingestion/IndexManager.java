@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -185,9 +186,12 @@ public class IndexManager {
      */
     public List<String> physicalIndicesOf(String aliasPrefix) throws IOException {
         var response = client.indices().get(g -> g.index(aliasPrefix + "*"));
+        // aliasHolders 会抛 IOException，不能在 stream 的 lambda 里调用（lambda 不允许
+        // 抛受检异常），所以先取出来再用集合判断
+        Set<String> activeIndices = Set.copyOf(aliasHolders(aliasPrefix));
         return response.result().keySet().stream()
                 .filter(name -> !name.equals(aliasPrefix))
-                .filter(name -> !aliasHolders(aliasPrefix).contains(name))
+                .filter(name -> !activeIndices.contains(name))
                 .sorted()
                 .toList();
     }

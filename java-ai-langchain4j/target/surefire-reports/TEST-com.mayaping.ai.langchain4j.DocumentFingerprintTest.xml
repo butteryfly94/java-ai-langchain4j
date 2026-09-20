@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="1.093" tests="12" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.055" tests="7" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="17"/>
     <property name="sun.cpu.isalist" value="amd64"/>
@@ -58,16 +58,14 @@
     <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
     <property name="java.class.version" value="61.0"/>
   </properties>
-  <testcase name="超过子块上限时截断并显式告警" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.161"/>
-  <testcase name="无表头的表格不把首行数据当表头丢掉" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.003"/>
-  <testcase name="正文与表格混排时保持顺序且各自元数据类型正确" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.017"/>
-  <testcase name="每个行级子块都带表头且自然语言化" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.003"/>
-  <testcase name="表格块带章节与表格说明做上下文" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.005"/>
-  <testcase name="解析MinerU的content_list样例文件" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.639"/>
-  <testcase name="超长表格拆分后每一片都重复表头" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.049"/>
-  <testcase name="样例文件端到端切出表格块与正文块" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.028"/>
-  <testcase name="结构化文档ID由content_list文件名推导" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.003"/>
-  <testcase name="表格解析失败时降级为正文并告警" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.006"/>
-  <testcase name="识别MinerU产物的文件名特征" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.001"/>
-  <testcase name="短表格整体作为一个父块不被切断" classname="com.mayaping.ai.langchain4j.TableAwareSplitterTest" time="0.005"/>
+  <testcase name="配置指纹应随任一参数变化而变化" classname="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.004"/>
+  <testcase name="账本中不存在的文档视为新增需要重灌" classname="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.001"/>
+  <testcase name="中文内容hash应基于utf8而非平台编码" classname="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.003"/>
+  <testcase name="切分配置变化时即使内容未变也必须重灌" classname="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.009">
+    <system-out><![CDATA[09:58:56.237 [main] INFO com.mayaping.ai.langchain4j.rag.ingestion.DocumentFingerprintStore -- [科室信息.md] 切分配置指纹变化（e0bddc2394047482 → dfd318bf72f37d2f），强制重新索引
+]]></system-out>
+  </testcase>
+  <testcase name="内容hash应稳定且对细微差异敏感" classname="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.002"/>
+  <testcase name="内容未变时应跳过重灌" classname="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.002"/>
+  <testcase name="内容变化时应重灌" classname="com.mayaping.ai.langchain4j.DocumentFingerprintTest" time="0.002"/>
 </testsuite>
