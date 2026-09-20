@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.mayaping.ai.langchain4j.CitationRecorderTest
--------------------------------------------------------------------------------
-Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.207 s -- in com.mayaping.ai.langchain4j.CitationRecorderTest

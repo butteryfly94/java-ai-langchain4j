@@ -51,8 +51,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   2. 别名存在，指向某个物理索引   → 正常切换
  *   3. **同名物理索引存在，但只是普通索引、不是别名** → 改造前遗留的索引。
  *      这是最坑的一种：ES 里索引名与别名**不能同名**，若不做迁移，
- *      首次运行会在"创建别名"这一步直接失败。
- *      迁移策略是把旧索引原地转成别名的一个指向（_aliases 操作对普通索引同样有效）。
+ *      首次运行会在"创建别名"这一步直接失败（invalid_alias_name_exception）。
+ *      注意这里的 remove 动作救不了：冲突的是**索引名本身**，不是别名归属，
+ *      同一请求里先 remove 再 add 依然报错。唯一可行的做法是先把旧索引**改名让位**
+ *      （_reindex 到 &lt;alias&gt;-legacy-&lt;时间戳&gt; 再删原索引），数据留在 legacy 索引里不丢。
  */
 @Component
 public class IndexManager {
@@ -119,6 +121,11 @@ public class IndexManager {
      * 分两次调用会出现"别名短暂不存在"的子状态，那时的检索直接报 index_not_found。
      */
     private void applyAliasSwap(String alias, String newPhysical) throws IOException {
+        // 遗留的同名普通索引必须先让出名字，否则下面的 add 会被 ES 拒绝
+        if (isPlainIndexNamed(alias)) {
+            migrateLegacyPlainIndex(alias);
+        }
+
         List<String> currentHolders = aliasHolders(alias);
 
         client.indices().updateAliases(u -> {
@@ -133,14 +140,43 @@ public class IndexManager {
     }
 
     /**
+     * 把改造前遗留的同名普通索引改名让位。
+     *
+     * 为什么是改名而不是删除：这个索引里装的是**当前唯一一份**知识库向量，
+     * 而调用方此刻已经完成了搬运/重灌（publish 里先 carryOver 再切别名），
+     * 但"搬运成功"这件事在跨版本、跨 mapping 的场景下并不绝对可靠。
+     * 直接删掉换来的只是省一点磁盘，代价是唯一副本消失且不可回滚。
+     * 数据安全问题不该由"省磁盘"来定价，所以默认保留，由人确认后再删除。
+     */
+    private void migrateLegacyPlainIndex(String alias) throws IOException {
+        String legacyName = alias + "-legacy-" + LocalDateTime.now().format(STAMP) + "-" + SEQ.incrementAndGet();
+
+        log.warn("检测到 {} 是改造前遗留的普通索引（与别名同名，ES 不允许二者共存）。"
+                        + "本次发布先把它改名为 {} 让出名字，原数据保留不删除；"
+                        + "确认新索引可检索后可手工 DELETE {}",
+                alias, legacyName, legacyName);
+
+        var response = client.reindex(r -> r
+                .source(s -> s.index(alias))
+                .dest(d -> d.index(legacyName))
+                .waitForCompletion(true));
+
+        if (!response.failures().isEmpty()) {
+            // 改名失败就中止发布：此时旧索引仍在原位、数据完好，别名尚未切换，
+            // 线上检索不受影响。继续走下去会删掉唯一副本，这个代价不可接受
+            throw new IOException(String.format(
+                    "遗留索引 %s 改名（reindex 到 %s）有 %d 条失败，已中止发布以避免删除唯一数据副本",
+                    alias, legacyName, response.failures().size()));
+        }
+
+        client.indices().delete(d -> d.index(alias));
+        log.info("遗留索引改名完成：{}（{} 条文档）→ {}", alias, response.total(), legacyName);
+    }
+
+    /**
      * 查询别名当前指向的物理索引。
      *
-     * 注意这里要处理"同名普通索引"这个遗留状态：如果 knowledge-children 是个
-     * 普通索引而不是别名，getAlias 会返回 404。此时把索引名本身当作持有者返回，
-     * 使 remove 动作能把它摘掉——ES 允许对普通索引执行 remove alias 之外的
-     * alias 操作，这一步等价于把旧索引原地"改造成"别名的一个历史指向。
-     *
-     * @return 当前指向该别名的索引名列表；别名不存在（或指向普通索引）时返回空列表
+     * @return 当前指向该别名的索引名列表；别名不存在时返回空列表
      */
     private List<String> aliasHolders(String alias) throws IOException {
         try {
@@ -148,19 +184,33 @@ public class IndexManager {
             return List.copyOf(response.result().keySet());
         } catch (ElasticsearchException e) {
             if (e.status() == 404) {
-                // 别名不存在。但同名普通索引可能存在——它是 ES 里"索引与别名不能同名"的
-                // 冲突来源，必须在这里被识别出来，否则后续 add alias 会直接失败
-                boolean plainIndexExists = client.indices().exists(x -> x.index(alias)).value();
-                if (plainIndexExists) {
-                    log.warn("检测到 {} 是改造前遗留的普通索引（非别名），"
-                            + "本次发布将把它转为别名并指向新索引。旧索引不会被删除，"
-                            + "确认新索引可检索后可手工 DELETE {}", alias, alias);
-                    return List.of(alias);
-                }
+                // 别名不存在。同名普通索引存在时这里也返回空——它不会被 updateAliases
+                // 的 remove 摘掉（它不是别名），而是在 applyAliasSwap 里先被改名让位
                 return List.of();
             }
             throw e;
         }
+    }
+
+    /** 该名字是否为别名（区别于同名普通索引） */
+    private boolean isAliasNamed(String name) throws IOException {
+        try {
+            client.indices().getAlias(g -> g.name(name));
+            return true;
+        } catch (ElasticsearchException e) {
+            if (e.status() == 404) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
+    /** 该名字是否为普通索引（同名别名优先判定为别名，不会两者同时成立） */
+    private boolean isPlainIndexNamed(String name) throws IOException {
+        if (isAliasNamed(name)) {
+            return false;
+        }
+        return client.indices().exists(e -> e.index(name)).value();
     }
 
     /**
@@ -168,8 +218,13 @@ public class IndexManager {
      * 这里只负责删除，不负责判断该不该删。
      */
     public void deleteIndex(String indexName) throws IOException {
-        if (aliasHolders(indexName).contains(indexName)) {
-            log.warn("{} 当前正被同名别名指向，拒绝删除以免影响线上检索", indexName);
+        // 别名不能删：ES 的 DELETE <别名> 会把别名指向的物理索引一并删掉。
+        // 这个分支真实可达——改造前的环境里 previousChildren 就是别名同名的普通索引，
+        // 它被改名让位后，同一个名字变成了指向**新索引**的别名，
+        // 此时若按名字删就会把刚发布的新索引删掉（数据丢失且查询立刻变空）
+        if (isAliasNamed(indexName)) {
+            log.warn("{} 当前是别名（指向 {}），拒绝删除以免连带删除其指向的物理索引",
+                    indexName, aliasHolders(indexName));
             return;
         }
         boolean exists = client.indices().exists(e -> e.index(indexName)).value();
@@ -203,10 +258,22 @@ public class IndexManager {
         }
     }
 
-    /** 该别名当前指向的物理索引名；未初始化时返回 null */
+    /**
+     * 当前可作搬运来源的索引名；没有可搬运来源时返回 null。
+     *
+     * 两种情况：
+     *   - 正常环境：别名指向的物理索引
+     *   - 改造前遗留环境：别名还不存在，向量在**同名普通索引**里。
+     *     这里必须把它认出来（返回索引名本身），否则首次发布时搬运步骤会认为
+     *     "没有上一版索引"而从零重灌——虽然结果正确，但会白白重付一遍全部 embedding。
+     *     注意此时**不能**走别名切换路径，它会在 applyAliasSwap 里被改名让位。
+     */
     public String currentPhysicalIndex(String alias) throws IOException {
         List<String> holders = aliasHolders(alias);
-        return holders.isEmpty() ? null : holders.get(0);
+        if (!holders.isEmpty()) {
+            return holders.get(0);
+        }
+        return isPlainIndexNamed(alias) ? alias : null;
     }
 
     private String physicalNameFor(String alias) {

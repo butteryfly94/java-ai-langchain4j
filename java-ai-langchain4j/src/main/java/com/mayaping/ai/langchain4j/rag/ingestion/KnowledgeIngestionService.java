@@ -388,14 +388,21 @@ public class KnowledgeIngestionService {
             return 0;
         }
 
-        // 用 bool.must_not + terms 排除变更文档。docId 在 parents 索引里是 keyword 字段，
-        // terms 查询对它是精确匹配，不会出现"科室信息.md"误配"科室信息.md.bak"的问题。
-        // children 索引由 langchain4j 自动创建，docId 通常是 text 类型——
-        // 若这里出现匹配不精确，说明需要在 langchain4j 创建后补 mapping
+        // 用 bool.must_not + terms 排除变更文档。
+        //
+        // 字段路径两类索引不同，这是本方法最容易出错的地方：
+        //   - parents：mapping 由我们自己定义，docId 是顶层 keyword → 用 "docId"
+        //   - children：mapping 由 langchain4j 自动创建，我们写入的元数据被整体塞进
+        //     metadata 对象里，实际路径是 "metadata.docId"。若这里仍按顶层 "docId" 查询，
+        //     terms 匹配不到任何文档 → 排除条件形同虚设 → 旧数据被整份搬运，
+        //     与新灌的文档叠加成重复子块（表现为子块数翻倍，检索命中重复内容）。
+        //     用 .keyword 子字段是因为该字段被动态映射成 text（会被分词），
+        //     而 terms 查询不做分词，用 text 字段匹配中文文件名同样会落空。
+        String docIdField = kind.equals("children") ? "metadata.docId.keyword" : "docId";
         Query query = excludedDocIds.isEmpty()
                 ? Query.of(q -> q.matchAll(m -> m))
                 : Query.of(q -> q.bool(b -> b.mustNot(mn -> mn.terms(t -> t
-                        .field("docId")
+                        .field(docIdField)
                         .terms(tt -> tt.value(excludedDocIds.stream()
                                 .map(FieldValue::of)
                                 .toList()))))));
