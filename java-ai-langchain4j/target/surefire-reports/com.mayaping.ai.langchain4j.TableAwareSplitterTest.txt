@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.mayaping.ai.langchain4j.TableAwareSplitterTest
+-------------------------------------------------------------------------------
+Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.266 s -- in com.mayaping.ai.langchain4j.TableAwareSplitterTest

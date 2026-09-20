@@ -1,0 +1,5 @@
+# Created at 2026-09-18T11:12:25.151
+Boot Manifest-JAR contains absolute paths in classpath 'D:\bak\ai-langchain4j-prd\java-ai-langchain4j\target\test-classes'
+Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+'other' has different root
+

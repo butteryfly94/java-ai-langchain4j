@@ -1,0 +1,42 @@
+[
+  {
+    "type": "text",
+    "text": "南京鼓楼医院就诊须知",
+    "page_idx": 0,
+    "bbox": [90, 80, 520, 110]
+  },
+  {
+    "type": "title",
+    "text": "一、门诊时间",
+    "text_level": 1,
+    "page_idx": 0,
+    "bbox": [90, 130, 300, 155]
+  },
+  {
+    "type": "text",
+    "text": "普通门诊时间为周一至周五上午8:00至下午17:00，周六上午半天。",
+    "page_idx": 0,
+    "bbox": [90, 170, 520, 200]
+  },
+  {
+    "type": "table",
+    "table_caption": ["各科室门诊排班表"],
+    "table_footnote": ["节假日安排另行通知"],
+    "table_body": "<table><tr><th>科室</th><th>门诊时间</th><th>咨询电话</th></tr><tr><td>心内科</td><td>周一至周五</td><td>025-12345678</td></tr><tr><td>神经内科</td><td>周一至周四</td><td>025-87654321</td></tr></table>",
+    "page_idx": 1,
+    "bbox": [80, 200, 540, 400]
+  },
+  {
+    "type": "image",
+    "img_path": "images/floor-map.jpg",
+    "img_caption": ["门诊楼楼层分布图"],
+    "page_idx": 2,
+    "bbox": [100, 100, 500, 400]
+  },
+  {
+    "type": "equation",
+    "text": "$$BMI = \\frac{weight}{height^2}$$",
+    "page_idx": 2,
+    "bbox": [200, 450, 400, 480]
+  }
+]
