@@ -259,6 +259,69 @@ public class IndexManager {
     }
 
     /**
+     * 探测某个字段在索引里的实际路径，用于拼出可在查询中使用的精确字段名。
+     *
+     * ## 为什么需要"探测"而不是写死字段名
+     *
+     * children 索引的 mapping **不是我们定义的**——它由 ES 在 langchain4j 首次写入时
+     * 动态映射（dynamic mapping）自动创建。因此字段落在哪一层、被推断成什么类型，
+     * 取决于 langchain4j 写入时的JSON结构，我们只能推断而无法保证：
+     *
+     *   - langchain4j 把元数据整体塞进一个 metadata 对象里 → 路径是 metadata.docId
+     *     若是扁平写入，路径则是 docId
+     *   - 字符串会被动态映射成 text（分词）。terms 查询不做分词，
+     *     直接查 text 字段匹配中文文件名会落空 → 必须用 .keyword 子字段
+     *
+     * 这两种情况一旦猜错**不会报错**，只会让 terms 条件匹配不到任何文档，
+     * 排除逻辑形同虚设，旧数据被整份搬运并与新数据叠加成重复子块。
+     * 所以这里不猜——去 mapping 里实际看一眼，按真实存在的路径返回。
+     *
+     * @param indexName 要探测的索引
+     * @param bareField 不带路径的字段名（如 docId）
+     * @return 可直接用于查询的字段名；两种路径都不存在时返回 null（调用方需降级）
+     */
+    public String resolveKeywordField(String indexName, String bareField) throws IOException {
+        var mapping = client.indices().getMapping(g -> g.index(indexName));
+
+        for (var entry : mapping.result().entrySet()) {
+            var properties = entry.getValue().mappings().properties();
+
+            // 情况一：嵌套在 metadata 对象里（langchain4j 的写入形态）
+            Property metadataWrapper = properties.get("metadata");
+            if (metadataWrapper != null && metadataWrapper.isObject()) {
+                Property nested = metadataWrapper.object().properties().get(bareField);
+                if (nested != null) {
+                    String resolved = "metadata." + bareField + (isTextLike(nested) ? ".keyword" : "");
+                    log.info("字段探测：{} 实际路径为 {}（索引 {}）", bareField, resolved, indexName);
+                    return resolved;
+                }
+            }
+
+            // 情况二：顶层字段（我们自己的 parents 索引就是这种）
+            Property direct = properties.get(bareField);
+            if (direct != null) {
+                String resolved = isTextLike(direct) ? bareField + ".keyword" : bareField;
+                log.info("字段探测：{} 实际路径为 {}（索引 {}）", bareField, resolved, indexName);
+                return resolved;
+            }
+        }
+
+        log.warn("字段探测：索引 {} 中找不到 {}，既不在 metadata 下也不在顶层。"
+                + "搬运将退化为不排除任何文档（可能产生重复子块）。"
+                + "若该索引尚未写入任何数据，属正常情况", indexName, bareField);
+        return null;
+    }
+
+    /**
+     * 判断字段是否被动态映射成 text 或 wildcard（需要用 .keyword 子字段做精确匹配）。
+     *
+     * keyword 字段可直接用于 terms；text 字段被分词后不能，必须走它的 keyword 子字段。
+     */
+    private static boolean isTextLike(Property property) {
+        return property.isText() || property.isWildcard();
+    }
+
+    /**
      * 当前可作搬运来源的索引名；没有可搬运来源时返回 null。
      *
      * 两种情况：

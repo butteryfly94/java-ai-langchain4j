@@ -390,22 +390,35 @@ public class KnowledgeIngestionService {
 
         // 用 bool.must_not + terms 排除变更文档。
         //
-        // 字段路径两类索引不同，这是本方法最容易出错的地方：
-        //   - parents：mapping 由我们自己定义，docId 是顶层 keyword → 用 "docId"
-        //   - children：mapping 由 langchain4j 自动创建，我们写入的元数据被整体塞进
-        //     metadata 对象里，实际路径是 "metadata.docId"。若这里仍按顶层 "docId" 查询，
-        //     terms 匹配不到任何文档 → 排除条件形同虚设 → 旧数据被整份搬运，
-        //     与新灌的文档叠加成重复子块（表现为子块数翻倍，检索命中重复内容）。
-        //     用 .keyword 子字段是因为该字段被动态映射成 text（会被分词），
-        //     而 terms 查询不做分词，用 text 字段匹配中文文件名同样会落空。
-        String docIdField = kind.equals("children") ? "metadata.docId.keyword" : "docId";
-        Query query = excludedDocIds.isEmpty()
-                ? Query.of(q -> q.matchAll(m -> m))
-                : Query.of(q -> q.bool(b -> b.mustNot(mn -> mn.terms(t -> t
-                        .field(docIdField)
-                        .terms(tt -> tt.value(excludedDocIds.stream()
-                                .map(FieldValue::of)
-                                .toList()))))));
+        // 字段路径不能写死，必须从索引的**实际 mapping** 里探测——原因见
+        // IndexManager.resolveKeywordField 的注释：children 索引由 ES 动态映射创建，
+        // 字段落在 metadata 下还是顶层、被推断成 text 还是 keyword，都不是我们决定的。
+        // 猜错的后果不是报错，而是 terms 匹配不到任何文档 → 排除形同虚设 →
+        // 旧数据被整份搬运并与新灌文档叠加成重复子块（子块数翻倍、检索命中重复内容）。
+        String docIdField = indexManager.resolveKeywordField(sourceIndex, "docId");
+
+        Query query;
+        if (excludedDocIds.isEmpty() || docIdField == null) {
+            // 没有要排除的文档，或字段探测失败（索引还没数据）。
+            // 探测失败时只能整份搬运：宁可留下重复子块（可见、可修复），
+            // 也不能因为"拿不准"而跳过搬运——那会让未变文档从索引里凭空消失，
+            // 且账本认为它们没变，后续增量也不会补，属于不可见的永久缺失
+            query = Query.of(q -> q.matchAll(m -> m));
+            if (docIdField == null && !excludedDocIds.isEmpty()) {
+                stats.warn(String.format(
+                        "%s 索引中未探测到 docId 字段（索引 %s），本次搬运未排除已变更文档，"
+                                + "新索引可能出现重复子块。确认新索引内容后可删除旧索引；"
+                                + "若重复严重请用 force=true 全量重建",
+                        kind, sourceIndex));
+            }
+        } else {
+            String field = docIdField;
+            query = Query.of(q -> q.bool(b -> b.mustNot(mn -> mn.terms(t -> t
+                    .field(field)
+                    .terms(tt -> tt.value(excludedDocIds.stream()
+                            .map(FieldValue::of)
+                            .toList()))))));
+        }
 
         var response = elasticsearchClient.reindex(r -> r
                 .source(s -> s.index(sourceIndex).query(query))
